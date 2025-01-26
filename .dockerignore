@@ -1,0 +1,47 @@
+# system files
+._*
+.DS_Store
+
+# backup files
+*.bak
+*~
+
+# ide files
+*.sublime‐project
+*.sublime‐workspace
+.idea/
+.vscode/
+*.xcodeproj/
+
+# Binaries
+bin/
+**/*.exe
+
+# Go cross-compiled binaries
+dist/
+
+# Go vendored packages
+vendor/**
+vendor
+
+# docker / compose environment files
+.env
+.env.*
+
+# crypto material
+*.rsa.pem
+*.rsa.priv
+*.rsa.pub
+*.crt
+*.key
+
+# local settings
+*.local.yaml
+
+# dev dbs
+*.db
+**/*.db
+
+# docs directory
+docs/**
+docs
