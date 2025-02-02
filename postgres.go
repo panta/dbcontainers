@@ -9,10 +9,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	_ "github.com/lib/pq"
@@ -44,6 +47,8 @@ type PostgresContainer struct {
 	containerID  string
 	config       *Config
 	hostPort     int
+	tempDir      string
+	useBindMount bool
 	logger       *slog.Logger
 }
 
@@ -58,6 +63,11 @@ func NewPostgres(logger *slog.Logger, config *Config) (*PostgresContainer, error
 		dockerHost = "localhost"
 	}
 
+	tmpBase := ""
+	if dockerHost != "localhost" && dockerHost != "127.0.0.1" {
+		tmpBase = "."
+	}
+
 	if config == nil {
 		config = &Config{
 			Image:    "postgres:15-bullseye",
@@ -70,7 +80,9 @@ func NewPostgres(logger *slog.Logger, config *Config) (*PostgresContainer, error
 				Delay:       time.Second,
 				Timeout:     time.Minute * 2,
 			},
-			DockerHost: dockerHost,
+			DockerHost:    dockerHost,
+			SkipBindMount: false,
+			TmpBase:       tmpBase,
 		}
 	}
 
@@ -99,15 +111,33 @@ func NewPostgres(logger *slog.Logger, config *Config) (*PostgresContainer, error
 	if config.DockerHost == "" {
 		config.DockerHost = dockerHost
 	}
+	if config.TmpBase == "" {
+		config.TmpBase = tmpBase
+	}
 
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 
+	useBindMount := !config.SkipBindMount
+	var tempDir string
+	if useBindMount {
+		tempDir, err = os.MkdirTemp(".", "dbcontainers-tmp")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temp dir: %w", err)
+		}
+		tempDir, err = filepath.Abs(tempDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get absolute path for temp dir: %w", err)
+		}
+	}
+
 	return &PostgresContainer{
 		dockerClient: cli,
 		config:       config,
+		tempDir:      tempDir,
+		useBindMount: useBindMount,
 		logger:       logger,
 	}, nil
 }
@@ -166,6 +196,16 @@ func (p *PostgresContainer) pullImage(ctx context.Context) error {
 
 func (p *PostgresContainer) createAndStartContainer(ctx context.Context) error {
 	p.logger.Debug("Creating container...")
+	var mounts []mount.Mount
+	if p.useBindMount && p.tempDir != "" {
+		mounts = []mount.Mount{
+			{
+				Type:   mount.TypeBind,
+				Source: p.tempDir,
+				Target: "/docker-entrypoint-initdb.d",
+			},
+		}
+	}
 	port := nat.Port(fmt.Sprintf("%d/tcp", p.config.Port))
 	resp, err := p.dockerClient.ContainerCreate(ctx,
 		&container.Config{
@@ -188,6 +228,7 @@ func (p *PostgresContainer) createAndStartContainer(ctx context.Context) error {
 			PortBindings: nat.PortMap{
 				port: []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: "0"}},
 			},
+			Mounts: mounts,
 			Resources: container.Resources{
 				Memory:     512 * 1024 * 1024,  // 512MB
 				MemorySwap: 1024 * 1024 * 1024, // 1GB
@@ -203,6 +244,10 @@ func (p *PostgresContainer) createAndStartContainer(ctx context.Context) error {
 
 	p.containerID = resp.ID
 	p.logger.Debug(fmt.Sprintf("Created container: %s", p.containerID[:12]))
+
+	if err := p.mountInitScripts(ctx); err != nil {
+		return fmt.Errorf("failed to create container SQL init scripts: %w", err)
+	}
 
 	p.logger.Debug("Starting container...")
 	if err := p.dockerClient.ContainerStart(ctx, p.containerID, container.StartOptions{}); err != nil {
@@ -258,6 +303,21 @@ func (p *PostgresContainer) createAndStartContainer(ctx context.Context) error {
 	return nil
 }
 
+func (p *PostgresContainer) mountInitScripts(ctx context.Context) error {
+	if !p.useBindMount || p.tempDir == "" {
+		return nil
+	}
+
+	for idx, initScriptContents := range p.config.InitScripts {
+		scriptName := fmt.Sprintf("%03d-init-script.sql", idx)
+		dstPath := filepath.Join(p.tempDir, scriptName)
+		if err := os.WriteFile(dstPath, []byte(initScriptContents), 0644); err != nil {
+			return fmt.Errorf("failed to write init script %d: %w", idx, err)
+		}
+	}
+	return nil
+}
+
 // Stop terminates the container
 func (p *PostgresContainer) Stop(ctx context.Context) error {
 	if p.containerID == "" {
@@ -269,6 +329,12 @@ func (p *PostgresContainer) Stop(ctx context.Context) error {
 	if err := p.dockerClient.ContainerStop(ctx, p.containerID, container.StopOptions{Timeout: &stopTimeoutSecs}); err != nil {
 		return fmt.Errorf("failed to stop container: %w", err)
 	}
+
+	defer func() {
+		if p.tempDir != "" {
+			_ = os.RemoveAll(p.tempDir)
+		}
+	}()
 
 	return p.dockerClient.ContainerRemove(ctx, p.containerID, container.RemoveOptions{
 		RemoveVolumes: true,
@@ -393,6 +459,9 @@ func (p *PostgresContainer) checkConnection(ctx context.Context) error {
 
 func (p *PostgresContainer) runInitScripts(ctx context.Context) error {
 	if len(p.config.InitScripts) == 0 {
+		return nil
+	}
+	if p.useBindMount && p.tempDir != "" {
 		return nil
 	}
 

@@ -30,14 +30,15 @@ func NewPostgresBuiler(logger *slog.Logger) *PostgresBuilder {
 
 	return &PostgresBuilder{
 		config: &Config{
-			Image:      "postgres:15",
-			Port:       5432,
-			Database:   "test",
-			Username:   "postgres",
-			Password:   "postgres",
-			Retry:      DefaultRetryConfig(),
-			DockerHost: dockerHost,
-			Debug:      false,
+			Image:         "postgres:15",
+			Port:          5432,
+			Database:      "test",
+			Username:      "postgres",
+			Password:      "postgres",
+			Retry:         DefaultRetryConfig(),
+			DockerHost:    dockerHost,
+			SkipBindMount: false,
+			Debug:         false,
 		},
 		logger: logger,
 	}
@@ -77,6 +78,16 @@ func (b *PostgresBuilder) WithDockerHost(dockerHost string) *PostgresBuilder {
 // WithDebug enables debug logging
 func (b *PostgresBuilder) WithDebug(debug bool) *PostgresBuilder {
 	b.config.Debug = debug
+	return b
+}
+
+func (b *PostgresBuilder) WithBindMound(enable bool) *PostgresBuilder {
+	b.config.SkipBindMount = !enable
+	return b
+}
+
+func (b *PostgresBuilder) WithTmpBase(tmpBase string) *PostgresBuilder {
+	b.config.TmpBase = tmpBase
 	return b
 }
 
