@@ -50,16 +50,12 @@ func NewPostgres(logger *slog.Logger, config *Config) (*PostgresContainer, error
 
 	if config == nil {
 		config = &Config{
-			Image:    "postgres:15-bullseye",
-			Port:     5432,
-			Database: "test",
-			Username: "postgres",
-			Password: "postgres",
-			Retry: &RetryConfig{
-				MaxAttempts: 60,
-				Delay:       time.Second,
-				Timeout:     time.Minute * 2,
-			},
+			Image:         "postgres:15-bullseye",
+			Port:          5432,
+			Database:      "test",
+			Username:      "postgres",
+			Password:      "postgres",
+			Retry:         DefaultRetryConfig(),
 			DockerHost:    dockerHost,
 			SkipBindMount: false,
 			TmpBase:       tmpBase,
@@ -82,11 +78,7 @@ func NewPostgres(logger *slog.Logger, config *Config) (*PostgresContainer, error
 		config.Password = "postgres"
 	}
 	if config.Retry == nil {
-		config.Retry = &RetryConfig{
-			MaxAttempts: 60,
-			Delay:       time.Second,
-			Timeout:     time.Minute * 2,
-		}
+		config.Retry = DefaultRetryConfig()
 	}
 	if config.DockerHost == "" {
 		config.DockerHost = dockerHost
