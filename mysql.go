@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	_ "github.com/go-sql-driver/mysql"
@@ -22,6 +25,8 @@ type MySQLContainer struct {
 	containerID  string
 	config       *Config
 	hostPort     int
+	tempDir      string
+	useBindMount bool
 	logger       *slog.Logger
 }
 
@@ -36,14 +41,22 @@ func NewMySQL(logger *slog.Logger, config *Config) (*MySQLContainer, error) {
 		dockerHost = "localhost"
 	}
 
+	tmpBase := ""
+	if dockerHost != "localhost" && dockerHost != "127.0.0.1" {
+		tmpBase = "."
+	}
+
 	if config == nil {
 		config = &Config{
-			Image:    "mysql:8",
-			Port:     3306,
-			Database: "test",
-			Username: "root",
-			Password: "mysql",
-			Retry:    DefaultRetryConfig(),
+			Image:         "mysql:8",
+			Port:          3306,
+			Database:      "test",
+			Username:      "root",
+			Password:      "mysql",
+			Retry:         DefaultRetryConfig(),
+			DockerHost:    dockerHost,
+			SkipBindMount: false,
+			TmpBase:       tmpBase,
 		}
 	}
 
@@ -68,15 +81,33 @@ func NewMySQL(logger *slog.Logger, config *Config) (*MySQLContainer, error) {
 	if config.DockerHost == "" {
 		config.DockerHost = dockerHost
 	}
+	if config.TmpBase == "" {
+		config.TmpBase = tmpBase
+	}
 
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 
+	useBindMount := !config.SkipBindMount
+	var tempDir string
+	if useBindMount {
+		tempDir, err = os.MkdirTemp(".", "dbcontainers-tmp")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temp dir: %w", err)
+		}
+		tempDir, err = filepath.Abs(tempDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get absolute path for temp dir: %w", err)
+		}
+	}
+
 	return &MySQLContainer{
 		dockerClient: cli,
 		config:       config,
+		tempDir:      tempDir,
+		useBindMount: useBindMount,
 		logger:       logger,
 	}, nil
 }
@@ -108,6 +139,18 @@ func (m *MySQLContainer) pullImage(ctx context.Context) error {
 }
 
 func (m *MySQLContainer) createAndStartContainer(ctx context.Context) error {
+	m.logger.Debug("Creating container...")
+
+	var mounts []mount.Mount
+	if m.useBindMount && m.tempDir != "" {
+		mounts = []mount.Mount{
+			{
+				Type:   mount.TypeBind,
+				Source: m.tempDir,
+				Target: "/docker-entrypoint-initdb.d",
+			},
+		}
+	}
 	port := nat.Port(fmt.Sprintf("%d/tcp", m.config.Port))
 	resp, err := m.dockerClient.ContainerCreate(ctx,
 		&container.Config{
@@ -130,6 +173,7 @@ func (m *MySQLContainer) createAndStartContainer(ctx context.Context) error {
 			PortBindings: nat.PortMap{
 				port: []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: "0"}},
 			},
+			Mounts: mounts,
 			Resources: container.Resources{
 				Memory:     512 * 1024 * 1024,  // 512MB
 				MemorySwap: 1024 * 1024 * 1024, // 1GB
@@ -151,6 +195,13 @@ func (m *MySQLContainer) createAndStartContainer(ctx context.Context) error {
 
 	m.containerID = resp.ID
 
+	m.logger.Debug(fmt.Sprintf("Created container: %s", m.containerID[:12]))
+
+	if err := m.mountInitScripts(ctx); err != nil {
+		return fmt.Errorf("failed to create container SQL init scripts: %w", err)
+	}
+
+	m.logger.Debug("Starting container...")
 	if err := m.dockerClient.ContainerStart(ctx, m.containerID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("failed to start container: %w", err)
 	}
@@ -168,6 +219,21 @@ func (m *MySQLContainer) createAndStartContainer(ctx context.Context) error {
 	return nil
 }
 
+func (m *MySQLContainer) mountInitScripts(ctx context.Context) error {
+	if !m.useBindMount || m.tempDir == "" {
+		return nil
+	}
+
+	for idx, initScriptContents := range m.config.InitScripts {
+		scriptName := fmt.Sprintf("%03d-init-script.sql", idx)
+		dstPath := filepath.Join(m.tempDir, scriptName)
+		if err := os.WriteFile(dstPath, []byte(initScriptContents), 0644); err != nil {
+			return fmt.Errorf("failed to write init script %d: %w", idx, err)
+		}
+	}
+	return nil
+}
+
 func (m *MySQLContainer) Stop(ctx context.Context) error {
 	if m.containerID == "" {
 		return nil
@@ -178,6 +244,12 @@ func (m *MySQLContainer) Stop(ctx context.Context) error {
 	if err := m.dockerClient.ContainerStop(ctx, m.containerID, container.StopOptions{Timeout: &stopTimeoutSecs}); err != nil {
 		return fmt.Errorf("failed to stop container: %w", err)
 	}
+
+	defer func() {
+		if m.tempDir != "" {
+			_ = os.RemoveAll(m.tempDir)
+		}
+	}()
 
 	return m.dockerClient.ContainerRemove(ctx, m.containerID, container.RemoveOptions{
 		RemoveVolumes: true,
@@ -275,6 +347,9 @@ func (m *MySQLContainer) checkConnection(ctx context.Context) error {
 
 func (m *MySQLContainer) runInitScripts(ctx context.Context) error {
 	if len(m.config.InitScripts) == 0 {
+		return nil
+	}
+	if m.useBindMount && m.tempDir != "" {
 		return nil
 	}
 
