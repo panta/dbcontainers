@@ -168,6 +168,7 @@ func (p *PostgresContainer) pullImage(ctx context.Context) error {
 
 func (p *PostgresContainer) createAndStartContainer(ctx context.Context) error {
 	p.logger.Debug("Creating container...")
+
 	var mounts []mount.Mount
 	if p.useBindMount && p.tempDir != "" {
 		mounts = []mount.Mount{
@@ -178,6 +179,7 @@ func (p *PostgresContainer) createAndStartContainer(ctx context.Context) error {
 			},
 		}
 	}
+
 	port := nat.Port(fmt.Sprintf("%d/tcp", p.config.Port))
 	resp, err := p.dockerClient.ContainerCreate(ctx,
 		&container.Config{
