@@ -1,6 +1,8 @@
 package dbcontainers
 
-import "fmt"
+import (
+	"fmt"
+)
 
 func parseInt(s string) int {
 	var i int
