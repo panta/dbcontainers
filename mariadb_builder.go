@@ -30,14 +30,15 @@ func NewMariaDBBuiler(logger *slog.Logger) *MariaDBBuilder {
 
 	return &MariaDBBuilder{
 		config: &Config{
-			Image:      "mariadb:10.11",
-			Port:       3306,
-			Database:   "test",
-			Username:   "root",
-			Password:   "mariadb",
-			Retry:      DefaultRetryConfig(),
-			DockerHost: dockerHost,
-			Debug:      false,
+			Image:         "mariadb:10.11",
+			Port:          3306,
+			Database:      "test",
+			Username:      "root",
+			Password:      "mariadb",
+			Retry:         DefaultRetryConfig(),
+			DockerHost:    dockerHost,
+			SkipBindMount: false,
+			Debug:         false,
 		},
 		logger: logger,
 	}
@@ -77,6 +78,16 @@ func (b *MariaDBBuilder) WithDockerHost(dockerHost string) *MariaDBBuilder {
 // WithDebug enables debug logging
 func (b *MariaDBBuilder) WithDebug(debug bool) *MariaDBBuilder {
 	b.config.Debug = debug
+	return b
+}
+
+func (b *MariaDBBuilder) WithBindMound(enable bool) *MariaDBBuilder {
+	b.config.SkipBindMount = !enable
+	return b
+}
+
+func (b *MariaDBBuilder) WithTmpBase(tmpBase string) *MariaDBBuilder {
+	b.config.TmpBase = tmpBase
 	return b
 }
 

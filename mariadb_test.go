@@ -26,11 +26,25 @@ func TestMariaDBContainer(t *testing.T) {
 			},
 		},
 		{
-			name: "with init scripts",
+			name: "with init scripts - inline",
 			config: &Config{
-				Database: "test_db",
-				Username: "test_user",
-				Password: "test_pass",
+				Database:      "test_db",
+				Username:      "test_user",
+				Password:      "test_pass",
+				SkipBindMount: true,
+			},
+			scripts: []string{
+				"CREATE TABLE test (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255));",
+				"INSERT INTO test (name) VALUES ('test');",
+			},
+		},
+		{
+			name: "with init scripts - using bind mount",
+			config: &Config{
+				Database:      "test_db",
+				Username:      "test_user",
+				Password:      "test_pass",
+				SkipBindMount: false,
 			},
 			scripts: []string{
 				"CREATE TABLE test (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255));",
