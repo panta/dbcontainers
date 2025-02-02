@@ -28,15 +28,17 @@ type Container interface {
 
 // Config holds common container configuration
 type Config struct {
-	Image       string
-	Port        int
-	Database    string
-	Username    string
-	Password    string
-	InitScripts []string
-	Retry       *RetryConfig
-	DockerHost  string
-	Debug       bool
+	Image         string
+	Port          int
+	Database      string
+	Username      string
+	Password      string
+	InitScripts   []string
+	Retry         *RetryConfig
+	DockerHost    string
+	SkipBindMount bool
+	TmpBase       string
+	Debug         bool
 }
 
 // RetryConfig defines retry behavior for operations
