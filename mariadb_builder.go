@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-// MariaDBBuilder implements a fluent interface for configuring MariaDBQL containers
+// MariaDBBuilder implements a fluent interface for configuring MariaDB containers
 type MariaDBBuilder struct {
 	config *Config
 	logger *slog.Logger
 }
 
-// NewMariaDBBuiler creates a new MariaDBQL container builder
+// NewMariaDBBuiler creates a new MariaDB container builder
 func NewMariaDBBuiler(logger *slog.Logger) *MariaDBBuilder {
 	if logger == nil {
 		logger = slog.Default()
@@ -43,7 +43,7 @@ func NewMariaDBBuiler(logger *slog.Logger) *MariaDBBuilder {
 	}
 }
 
-// WithVersion sets the MariaDBQL version
+// WithVersion sets the MariaDB version
 func (b *MariaDBBuilder) WithVersion(version string) *MariaDBBuilder {
 	b.config.Image = fmt.Sprintf("mariadb:%s", version)
 	return b
@@ -149,7 +149,7 @@ func (b *MariaDBBuilder) WithRetryPolicy(attempts int, delay time.Duration, time
 	return b
 }
 
-// Build creates and returns a new MariaDBQL container
+// Build creates and returns a new MariaDB container
 func (b *MariaDBBuilder) Build(ctx context.Context) (Container, error) {
 	return NewMariaDB(b.logger, b.config)
 }
