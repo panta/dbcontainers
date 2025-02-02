@@ -344,11 +344,15 @@ func (m *MariaDBContainer) waitForReady(ctx context.Context) error {
 func (m *MariaDBContainer) checkHealth(ctx context.Context) error {
 	inspect, err := m.dockerClient.ContainerInspect(ctx, m.containerID)
 	if err != nil {
-		return err
+		return fmt.Errorf("container inspect failed: %w", err)
 	}
 
 	if !inspect.State.Running {
 		return errors.New("container is not running")
+	}
+
+	if inspect.State.Health == nil {
+		return errors.New("container has no health status yet")
 	}
 
 	if inspect.State.Health != nil && inspect.State.Health.Status != "healthy" {
