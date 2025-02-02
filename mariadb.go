@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -136,6 +137,28 @@ func (m *MariaDBContainer) pullImage(ctx context.Context) error {
 	}
 	defer reader.Close()
 
+	// Log pull progress
+	decoder := json.NewDecoder(reader)
+	for {
+		var pullStatus struct {
+			Status   string `json:"status"`
+			Progress string `json:"progress,omitempty"`
+			ID       string `json:"id,omitempty"`
+		}
+		if err := decoder.Decode(&pullStatus); err != nil {
+			if err == io.EOF {
+				break
+			}
+			m.logger.Error("Error decoding pull status", slog.Any("error", err))
+			continue
+		}
+		if pullStatus.ID != "" {
+			m.logger.Debug(fmt.Sprintf("[%s] %s %s", pullStatus.ID, pullStatus.Status, pullStatus.Progress))
+		} else {
+			m.logger.Debug(fmt.Sprintf("%s %s", pullStatus.Status, pullStatus.Progress))
+		}
+	}
+
 	_, err = io.Copy(io.Discard, reader)
 	return err
 }
@@ -153,6 +176,7 @@ func (m *MariaDBContainer) createAndStartContainer(ctx context.Context) error {
 			},
 		}
 	}
+
 	port := nat.Port(fmt.Sprintf("%d/tcp", m.config.Port))
 	resp, err := m.dockerClient.ContainerCreate(ctx,
 		&container.Config{
