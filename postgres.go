@@ -21,26 +21,6 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// // RetryConfig defines retry behavior for operations
-// type RetryConfig struct {
-// 	MaxAttempts int
-// 	Delay       time.Duration
-// 	Timeout     time.Duration
-// }
-
-// // Config holds container configuration
-// type Config struct {
-// 	Image       string
-// 	Port        int
-// 	Database    string
-// 	Username    string
-// 	Password    string
-// 	InitScripts []string
-// 	Retry       *RetryConfig
-// 	DockerHost  string
-// 	Debug       bool
-// }
-
 // PostgresContainer implements the Container interface for PostgreSQL
 type PostgresContainer struct {
 	dockerClient *client.Client
