@@ -116,6 +116,51 @@ func TestMariaDBContainer(t *testing.T) {
 	}
 }
 
+func TestMariaDBBuilder(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("builder pattern", func(t *testing.T) {
+		container, err := NewMariaDBBuiler(getMariaDBLogger()).
+			WithVersion("10.11").
+			WithDatabase("testdb").
+			WithCredentials("test_user", "test_pass").
+			WithInitScript(`CREATE DATABASE IF NOT EXISTS testdb;`).
+			WithInitScript(`CREATE TABLE test (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255));`).
+			WithInitScript(`INSERT INTO test (name) VALUES ('test');`).
+			Build(ctx)
+
+		if err != nil {
+			t.Fatalf("Failed to build container: %v", err)
+		}
+
+		if err := container.Start(ctx); err != nil {
+			t.Fatalf("Failed to start container: %v", err)
+		}
+		defer container.Stop(ctx)
+
+		// Verify configuration
+		db, err := sql.Open("mysql", container.ConnectionString())
+		if err != nil {
+			t.Fatalf("Failed to open database connection: %v", err)
+		}
+		defer db.Close()
+
+		if err := db.PingContext(ctx); err != nil {
+			t.Fatalf("Failed to ping database: %v", err)
+		}
+
+		// Verify table creation
+		var count int
+		err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM test").Scan(&count)
+		if err != nil {
+			t.Fatalf("Failed to query test table: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("Expected 1 row in test table, got %d", count)
+		}
+	})
+}
+
 func getMariaDBLogger() *slog.Logger {
 	debug := false
 	debugStr := os.Getenv("DBCONTAINER_DEBUG")
